@@ -156,6 +156,7 @@ describe('convertCurrency', () => {
     expect(httpGet).toHaveBeenCalledWith(
       expect.stringContaining('/1/usd/eur'),
       expect.anything(),
+      5000,
     );
   });
 

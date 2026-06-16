@@ -121,13 +121,13 @@ export async function convertCurrency(
   from: string,
   to: string,
 ): Promise<CurrencyResult> {
-  const url = `https://duckduckgo.com/js/spice/currency/${amount}/${from.toLowerCase()}/${to.toLowerCase()}`;
+  const url = `https://duckduckgo.com/js/spice/currency/${amount}/${encodeURIComponent(from.toLowerCase())}/${encodeURIComponent(to.toLowerCase())}`;
 
   const response = await httpGet(url, {
     Accept: 'application/json, text/javascript, */*; q=0.01',
     'User-Agent':
       'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36',
-  });
+  }, 5000);
 
   if (response.status < 200 || response.status >= 300) {
     throw new DdgApiError(

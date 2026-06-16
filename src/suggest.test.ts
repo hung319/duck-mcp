@@ -68,6 +68,7 @@ describe('getSuggestions', () => {
     expect(httpGet).toHaveBeenCalledWith(
       expect.stringContaining('kl=de-de'),
       expect.anything(),
+      5000,
     );
   });
 
@@ -84,6 +85,7 @@ describe('getSuggestions', () => {
     expect(httpGet).toHaveBeenCalledWith(
       expect.stringContaining('type=list'),
       expect.anything(),
+      5000,
     );
   });
 
@@ -126,10 +128,9 @@ describe('getSuggestions', () => {
     expect(httpGet).toHaveBeenCalledWith(
       expect.any(String),
       expect.objectContaining({
-        headers: expect.objectContaining({
-          Accept: 'application/json, text/javascript, */*; q=0.01',
-        }),
+        Accept: 'application/json, text/javascript, */*; q=0.01',
       }),
+      5000,
     );
   });
 
@@ -146,6 +147,7 @@ describe('getSuggestions', () => {
     expect(httpGet).toHaveBeenCalledWith(
       expect.stringContaining('q=hello+world'),
       expect.anything(),
+      5000,
     );
   });
 
