@@ -6,6 +6,7 @@ import { webSearch } from "./search.js";
 import { newsSearch } from "./news.js";
 import { fetchContent } from "./fetch.js";
 import { imageSearch } from "./images.js";
+import { videoSearch } from "./videos.js";
 
 // ─── Shared schemas ────────────────────────────────────────────────────
 
@@ -299,7 +300,92 @@ server.tool(
   },
 );
 
-// ─── Tool 5: ddg_fetch_content ──────────────────────────────────────────
+// ─── Tool 5: ddg_search_videos ───────────────────────────────────────────
+
+server.tool(
+  "ddg_search_videos",
+  "Search videos using DuckDuckGo. Returns video results with duration, uploader, and view statistics.",
+  {
+    query: z.string().min(1).describe("Video search query"),
+    maxResults: z
+      .number()
+      .min(1)
+      .max(30)
+      .optional()
+      .default(10)
+      .describe("Maximum video results (default 10, max 30)"),
+    region: regionSchema,
+    safesearch: safesearchSchema,
+    freshness: timeFilterSchema.describe("Filter by time: 'day', 'week', 'month', 'year'"),
+    resolution: z
+      .enum(["high", "standard"])
+      .optional()
+      .describe("Filter by video resolution"),
+    duration: z
+      .enum(["short", "medium", "long"])
+      .optional()
+      .describe("Filter by video duration"),
+    license: z
+      .enum(["free", "creativeCommon"])
+      .optional()
+      .describe("Filter by video license"),
+  },
+  async ({ query, maxResults, region, safesearch, freshness, resolution, duration, license }) => {
+    try {
+      const results = await videoSearch(query, {
+        maxResults,
+        ...(region ? { region } : {}),
+        ...(safesearch ? { safesearch } : {}),
+        ...(freshness ? { timeFilter: freshness } : {}),
+        ...(resolution ? { resolution } : {}),
+        ...(duration ? { duration } : {}),
+        ...(license ? { license } : {}),
+      });
+
+      if (!results || results.length === 0) {
+        return {
+          content: [{ type: "text" as const, text: "No video results found." }],
+        };
+      }
+
+      const lines: string[] = [];
+      lines.push(`# Video Results for "${query}"\n`);
+
+      for (let i = 0; i < results.length; i++) {
+        const r = results[i];
+        lines.push(`## ${i + 1}. [${r.title}](${r.url})`);
+        if (r.description) lines.push(`\n${r.description}\n`);
+        lines.push(`| | |`);
+        lines.push(`|---|---|`);
+        if (r.duration) lines.push(`| **Duration** | ${r.duration} |`);
+        if (r.uploader) lines.push(`| **Uploader** | ${r.uploader} |`);
+        if (r.publisher) lines.push(`| **Channel** | ${r.publisher} |`);
+        if (r.statistics) lines.push(`| **Views** | ${r.statistics} |`);
+        if (r.published) lines.push(`| **Published** | ${r.published} |`);
+        if (r.provider) lines.push(`| **Provider** | ${r.provider} |`);
+        if (r.imageUrl) lines.push(`| **Thumbnail** | ![Thumbnail](${r.imageUrl}) |`);
+        lines.push("");
+      }
+
+      lines.push(`---\n*${results.length} videos*`);
+
+      return {
+        content: [{ type: "text" as const, text: lines.join("\n") }],
+      };
+    } catch (err) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Error fetching videos: ${err instanceof Error ? err.message : String(err)}`,
+          },
+        ],
+      };
+    }
+  },
+);
+
+// ─── Tool 6: ddg_fetch_content ──────────────────────────────────────────
 
 server.tool(
   "ddg_fetch_content",

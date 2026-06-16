@@ -1,173 +1,167 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { getVqdToken, resetVqdCache } from "./vqd.js";
 
-const TEST_TOKEN = "4-1234567890abcdef";
+// ─── Mocks ─────────────────────────────────────────────────────────────
 
-function mockFetchResponse(
-  overrides: Partial<Response> = {}
-): Response {
-  return {
-    ok: true,
-    status: 200,
-    headers: new Headers({ "x-vqd-4": TEST_TOKEN, ...Object.fromEntries(overrides.headers?.entries() ?? []) }),
-    ...overrides,
-  } as Response;
+vi.mock("./http.js", () => ({
+  httpGet: vi.fn(),
+}));
+
+import { httpGet } from "./http.js";
+const mockHttpGet = vi.mocked(httpGet);
+
+const TEST_TOKEN = "4-263850069949942448194933821502839833765";
+
+function makeHtmlWithVqd(token: string): string {
+  return `<!DOCTYPE html><html><head><script>var vqd='${token}';</script></head><body>...</body></html>`;
+}
+
+function makeVqdResponse(
+  body: string,
+  status = 200,
+) {
+  return { status, body, headers: {} };
 }
 
 describe("getVqdToken", () => {
   beforeEach(() => {
-    vi.restoreAllMocks();
+    vi.clearAllMocks();
     resetVqdCache();
   });
 
   describe("cache behavior", () => {
     it("returns cached token on second call without fetching", async () => {
-      const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-        mockFetchResponse()
-      );
+      mockHttpGet.mockResolvedValue(makeVqdResponse(makeHtmlWithVqd(TEST_TOKEN)));
 
       const first = await getVqdToken("hello");
       expect(first).toBe(TEST_TOKEN);
 
-      // Reset call count — second call should not call fetch
-      fetchMock.mockClear();
+      // Reset call count — second call should not call httpGet
+      mockHttpGet.mockClear();
 
       const second = await getVqdToken("hello");
       expect(second).toBe(TEST_TOKEN);
-      expect(fetchMock).not.toHaveBeenCalled();
+      expect(mockHttpGet).not.toHaveBeenCalled();
     });
 
     it("uses different cache keys for different queries", async () => {
-      const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-        mockFetchResponse()
-      );
+      mockHttpGet.mockResolvedValue(makeVqdResponse(makeHtmlWithVqd(TEST_TOKEN)));
 
       await getVqdToken("query1");
       await getVqdToken("query2");
 
-      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(mockHttpGet).toHaveBeenCalledTimes(2);
     });
 
     it("uses different cache keys for different regions", async () => {
-      const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-        mockFetchResponse()
-      );
+      mockHttpGet.mockResolvedValue(makeVqdResponse(makeHtmlWithVqd(TEST_TOKEN)));
 
       await getVqdToken("test", { region: "us-en" });
       await getVqdToken("test", { region: "de-de" });
 
-      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(mockHttpGet).toHaveBeenCalledTimes(2);
     });
 
     it("defaults region to wt-wt when not provided", async () => {
-      const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-        mockFetchResponse()
-      );
+      mockHttpGet.mockResolvedValue(makeVqdResponse(makeHtmlWithVqd(TEST_TOKEN)));
 
       await getVqdToken("test");
       await getVqdToken("test", { region: "wt-wt" });
 
       // Both should hit same cache key
-      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(mockHttpGet).toHaveBeenCalledTimes(1);
     });
   });
 
   describe("VQD acquisition", () => {
-    it("sends POST request to duckduckgo.com with encoded query", async () => {
-      const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-        mockFetchResponse()
-      );
+    it("sends GET request to duckduckgo.com with encoded query", async () => {
+      mockHttpGet.mockResolvedValue(makeVqdResponse(makeHtmlWithVqd(TEST_TOKEN)));
 
       await getVqdToken("hello world");
 
-      expect(fetchMock).toHaveBeenCalledWith(
-        "https://duckduckgo.com/",
-        expect.objectContaining({
-          method: "POST",
-          body: "q=hello%20world",
-        })
+      expect(mockHttpGet).toHaveBeenCalledWith(
+        "https://duckduckgo.com/?q=hello%20world",
+        expect.any(Object),
+        expect.any(Number),
       );
     });
 
     it("sends browser-like headers", async () => {
-      const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-        mockFetchResponse()
-      );
+      mockHttpGet.mockResolvedValue(makeVqdResponse(makeHtmlWithVqd(TEST_TOKEN)));
 
       await getVqdToken("test");
 
-      const [, options] = fetchMock.mock.calls[0] as [string, RequestInit];
-      const headers = options.headers as Record<string, string>;
-
+      const [, headers] = mockHttpGet.mock.calls[0];
       expect(headers["User-Agent"]).toContain("Mozilla/5.0");
-      expect(headers["Accept"]).toBe("*/*");
-      expect(headers["Accept-Language"]).toBe("en-US,en;q=0.9");
-      expect(headers["Origin"]).toBe("https://duckduckgo.com");
+      expect(headers["Accept"]).toBe("text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
+      expect(headers["Accept-Language"]).toBe("en-US,en;q=0.5");
       expect(headers["Referer"]).toBe("https://duckduckgo.com/");
-      expect(headers["Content-Type"]).toBe("application/x-www-form-urlencoded");
     });
 
-    it("extracts x-vqd-4 from response headers", async () => {
-      vi.spyOn(globalThis, "fetch").mockResolvedValue(
-        mockFetchResponse()
-      );
+    it("extracts VQD from HTML body", async () => {
+      mockHttpGet.mockResolvedValue(makeVqdResponse(makeHtmlWithVqd(TEST_TOKEN)));
 
       const token = await getVqdToken("test");
       expect(token).toBe(TEST_TOKEN);
     });
 
-    it("throws when x-vqd-4 header is missing", async () => {
-      vi.spyOn(globalThis, "fetch").mockResolvedValue(
-        mockFetchResponse({
-          headers: new Headers(),
-        })
-      );
+    it("extracts VQD with double quotes", async () => {
+      const html = `vqd="${TEST_TOKEN}"`;
+      mockHttpGet.mockResolvedValue(makeVqdResponse(html));
+
+      const token = await getVqdToken("test");
+      expect(token).toBe(TEST_TOKEN);
+    });
+
+    it("extracts VQD with single quotes", async () => {
+      const html = `vqd='${TEST_TOKEN}'`;
+      mockHttpGet.mockResolvedValue(makeVqdResponse(html));
+
+      const token = await getVqdToken("test");
+      expect(token).toBe(TEST_TOKEN);
+    });
+
+    it("throws when VQD is missing from HTML", async () => {
+      mockHttpGet.mockResolvedValue(makeVqdResponse("<html>no vqd here</html>"));
 
       await expect(getVqdToken("test")).rejects.toThrow(
-        "Failed to acquire VQD token"
+        "VQD token not found in HTML response"
       );
     });
   });
 
   describe("error handling", () => {
     it("retries on network error with exponential backoff", async () => {
-      const fetchMock = vi
-        .spyOn(globalThis, "fetch")
+      mockHttpGet
         .mockRejectedValueOnce(new Error("Network failure"))
         .mockRejectedValueOnce(new Error("Network failure"))
-        .mockResolvedValue(mockFetchResponse());
+        .mockResolvedValue(makeVqdResponse(makeHtmlWithVqd(TEST_TOKEN)));
 
       const token = await getVqdToken("test");
       expect(token).toBe(TEST_TOKEN);
-      expect(fetchMock).toHaveBeenCalledTimes(3);
+      expect(mockHttpGet).toHaveBeenCalledTimes(3);
     });
 
     it("throws on 403 without retry", async () => {
-      const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-        mockFetchResponse({
-          ok: false,
-          status: 403,
-        })
-      );
+      mockHttpGet.mockResolvedValue({
+        status: 403, body: "", headers: {},
+      });
 
       await expect(getVqdToken("test")).rejects.toThrow(
-        "Failed to acquire VQD token"
+        "DDG blocked request (HTTP 403)"
       );
-      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(mockHttpGet).toHaveBeenCalledTimes(1);
     });
 
     it("throws on 429 without retry", async () => {
-      const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-        mockFetchResponse({
-          ok: false,
-          status: 429,
-        })
-      );
+      mockHttpGet.mockResolvedValue({
+        status: 429, body: "", headers: {},
+      });
 
       await expect(getVqdToken("test")).rejects.toThrow(
-        "Failed to acquire VQD token"
+        "DDG blocked request (HTTP 429)"
       );
-      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(mockHttpGet).toHaveBeenCalledTimes(1);
     });
   });
 });

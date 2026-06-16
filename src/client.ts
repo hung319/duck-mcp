@@ -1,17 +1,9 @@
+import { httpGet, httpPost } from './http.js';
 import { getVqdToken, DDG_HEADERS } from './vqd.js';
+import { DdgApiError } from './errors.js';
 
-// ─── Error class ──────────────────────────────────────────────────────
-
-export class DdgApiError extends Error {
-  constructor(
-    message: string,
-    public readonly statusCode?: number,
-    public readonly body?: string,
-  ) {
-    super(message);
-    this.name = 'DdgApiError';
-  }
-}
+// ─── Re-export DdgApiError ─────────────────────────────────────────────
+export { DdgApiError } from './errors.js';
 
 // ─── Rate limiting ────────────────────────────────────────────────────
 
@@ -34,29 +26,6 @@ async function enforceRateLimit(): Promise<void> {
 /** Reset the rate limiter — exposed for testing. */
 export function resetRateLimit(): void {
   lastRequestTime = 0;
-}
-
-// ─── Response helpers ─────────────────────────────────────────────────
-
-async function getResponseBody(response: Response): Promise<string> {
-  try {
-    return await response.text();
-  } catch {
-    return '';
-  }
-}
-
-async function parseJson<T>(response: Response): Promise<T> {
-  try {
-    return (await response.json()) as T;
-  } catch {
-    const body = await getResponseBody(response);
-    throw new DdgApiError(
-      `Failed to parse JSON response: ${body.slice(0, 200)}`,
-      response.status,
-      body,
-    );
-  }
 }
 
 // ─── ddgGet ───────────────────────────────────────────────────────────
@@ -92,20 +61,25 @@ export async function ddgGet<T>(
     try {
       await enforceRateLimit();
 
-      const response = await fetch(url, {
-        headers: DDG_HEADERS,
-      });
+      const response = await httpGet(url, DDG_HEADERS, 15000);
 
-      if (!response.ok) {
-        const body = await getResponseBody(response);
+      if (response.status < 200 || response.status >= 300) {
         throw new DdgApiError(
-          `HTTP ${response.status}: ${body.slice(0, 200)}`,
+          `HTTP ${response.status}: ${response.body.slice(0, 200)}`,
           response.status,
-          body,
+          response.body,
         );
       }
 
-      return await parseJson<T>(response);
+      try {
+        return JSON.parse(response.body) as T;
+      } catch {
+        throw new DdgApiError(
+          `Failed to parse JSON response: ${response.body.slice(0, 200)}`,
+          response.status,
+          response.body,
+        );
+      }
     } catch (err) {
       // DdgApiError (4xx/5xx) — do not retry
       if (err instanceof DdgApiError) {
@@ -151,23 +125,31 @@ export async function ddgPost<T>(
 
   await enforceRateLimit();
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
+  const response = await httpPost(
+    url,
+    JSON.stringify(body),
+    {
       ...DDG_HEADERS,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify(body),
-  });
+    15000,
+  );
 
-  if (!response.ok) {
-    const bodyText = await getResponseBody(response);
+  if (response.status < 200 || response.status >= 300) {
     throw new DdgApiError(
-      `HTTP ${response.status}: ${bodyText.slice(0, 200)}`,
+      `HTTP ${response.status}: ${response.body.slice(0, 200)}`,
       response.status,
-      bodyText,
+      response.body,
     );
   }
 
-  return await parseJson<T>(response);
+  try {
+    return JSON.parse(response.body) as T;
+  } catch {
+    throw new DdgApiError(
+      `Failed to parse JSON response: ${response.body.slice(0, 200)}`,
+      response.status,
+      response.body,
+    );
+  }
 }

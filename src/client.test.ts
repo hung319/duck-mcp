@@ -20,32 +20,35 @@ vi.mock('./vqd.js', () => ({
   },
 }));
 
+// Mock the http module so no real network calls happen
+vi.mock('./http.js', () => ({
+  httpGet: vi.fn(),
+  httpPost: vi.fn(),
+}));
+
+import { httpGet, httpPost } from './http.js';
+const mockHttpGet = vi.mocked(httpGet);
+const mockHttpPost = vi.mocked(httpPost);
+
 function mockJsonResponse(
   data: unknown,
-  overrides: Partial<Response> = {},
-): Response {
+) {
   return {
-    ok: true,
     status: 200,
-    headers: new Headers({ 'content-type': 'application/json' }),
-    json: () => Promise.resolve(data),
-    text: () => Promise.resolve(JSON.stringify(data)),
-    ...overrides,
-  } as Response;
+    body: JSON.stringify(data),
+    headers: { 'content-type': 'application/json' },
+  };
 }
 
 function mockErrorResponse(
   status: number,
   body: string = 'Error',
-): Response {
+) {
   return {
-    ok: false,
     status,
-    headers: new Headers({ 'content-type': 'text/plain' }),
-    json: () => Promise.reject(new Error('not json')),
-    text: () => Promise.resolve(body),
-    ...({} as Partial<Response>),
-  } as Response;
+    body,
+    headers: { 'content-type': 'text/plain' },
+  };
 }
 
 // ─── DdgApiError ──────────────────────────────────────────────────────
@@ -80,9 +83,7 @@ describe('ddgGet', () => {
 
   it('calls getVqdToken with the query and default region', async () => {
     const { getVqdToken } = await import('./vqd.js');
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      mockJsonResponse({ foo: 'bar' }),
-    );
+    mockHttpGet.mockResolvedValue(mockJsonResponse({ foo: 'bar' }));
 
     await ddgGet('links.duckduckgo.com/d.js', { q: 'hello' });
 
@@ -91,9 +92,7 @@ describe('ddgGet', () => {
 
   it('passes region option to getVqdToken', async () => {
     const { getVqdToken } = await import('./vqd.js');
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      mockJsonResponse({ foo: 'bar' }),
-    );
+    mockHttpGet.mockResolvedValue(mockJsonResponse({ foo: 'bar' }));
 
     await ddgGet('links.duckduckgo.com/d.js', { q: 'test' }, { region: 'de-de' });
 
@@ -101,14 +100,12 @@ describe('ddgGet', () => {
   });
 
   it('builds the correct URL with VQD token and o=json', async () => {
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      mockJsonResponse({ results: [] }),
-    );
+    mockHttpGet.mockResolvedValue(mockJsonResponse({ results: [] }));
 
     await ddgGet('links.duckduckgo.com/d.js', { q: 'hello world' });
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(mockHttpGet).toHaveBeenCalledTimes(1);
+    const [url] = mockHttpGet.mock.calls[0] as [string, Record<string, string>, number];
 
     expect(url).toContain('links.duckduckgo.com/d.js');
     expect(url).toContain('q=hello+world');
@@ -117,9 +114,7 @@ describe('ddgGet', () => {
   });
 
   it('appends extra params to the URL', async () => {
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      mockJsonResponse({ results: [] }),
-    );
+    mockHttpGet.mockResolvedValue(mockJsonResponse({ results: [] }));
 
     await ddgGet('links.duckduckgo.com/d.js', {
       q: 'test',
@@ -127,21 +122,18 @@ describe('ddgGet', () => {
       df: '2024-01',
     });
 
-    const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const [url] = mockHttpGet.mock.calls[0] as [string, Record<string, string>, number];
     expect(url).toContain('kl=us-en');
     expect(url).toContain('df=2024-01');
   });
 
   it('sends a GET request with DDG_HEADERS', async () => {
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      mockJsonResponse({ results: [] }),
-    );
+    mockHttpGet.mockResolvedValue(mockJsonResponse({ results: [] }));
 
     await ddgGet('links.duckduckgo.com/d.js', { q: 'test' });
 
-    const [, options] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(options.method ?? 'GET').toBe('GET');
-    expect(options.headers).toEqual(
+    const [, headers] = mockHttpGet.mock.calls[0] as [string, Record<string, string>, number];
+    expect(headers).toEqual(
       expect.objectContaining({
         'User-Agent': expect.stringContaining('Mozilla'),
         Accept: '*/*',
@@ -152,9 +144,7 @@ describe('ddgGet', () => {
 
   it('returns parsed JSON response', async () => {
     const data = { results: [{ title: 'Test' }] };
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      mockJsonResponse(data),
-    );
+    mockHttpGet.mockResolvedValue(mockJsonResponse(data));
 
     const result = await ddgGet<{ results: Array<{ title: string }> }>(
       'links.duckduckgo.com/d.js',
@@ -165,8 +155,7 @@ describe('ddgGet', () => {
   });
 
   it('retries on network error up to default maxRetries (2)', async () => {
-    const fetchMock = vi
-      .spyOn(globalThis, 'fetch')
+    mockHttpGet
       .mockRejectedValueOnce(new Error('Network failure'))
       .mockRejectedValueOnce(new Error('Network failure'))
       .mockResolvedValue(mockJsonResponse({ ok: true }));
@@ -174,12 +163,11 @@ describe('ddgGet', () => {
     const result = await ddgGet('links.duckduckgo.com/d.js', { q: 'test' });
 
     expect(result).toEqual({ ok: true });
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(mockHttpGet).toHaveBeenCalledTimes(3);
   });
 
   it('respects custom maxRetries option', async () => {
-    const fetchMock = vi
-      .spyOn(globalThis, 'fetch')
+    mockHttpGet
       .mockRejectedValueOnce(new Error('fail'))
       .mockResolvedValue(mockJsonResponse({ ok: true }));
 
@@ -190,37 +178,31 @@ describe('ddgGet', () => {
     );
 
     expect(result).toEqual({ ok: true });
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(mockHttpGet).toHaveBeenCalledTimes(2);
   });
 
   it('does NOT retry on 4xx response', async () => {
-    const fetchMock = vi
-      .spyOn(globalThis, 'fetch')
-      .mockResolvedValue(mockErrorResponse(400, 'Bad request'));
+    mockHttpGet.mockResolvedValue(mockErrorResponse(400, 'Bad request'));
 
     await expect(
       ddgGet('links.duckduckgo.com/d.js', { q: 'test' }),
     ).rejects.toThrow(DdgApiError);
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(mockHttpGet).toHaveBeenCalledTimes(1);
   });
 
   it('does NOT retry on 5xx response', async () => {
-    const fetchMock = vi
-      .spyOn(globalThis, 'fetch')
-      .mockResolvedValue(mockErrorResponse(503, 'Service unavailable'));
+    mockHttpGet.mockResolvedValue(mockErrorResponse(503, 'Service unavailable'));
 
     await expect(
       ddgGet('links.duckduckgo.com/d.js', { q: 'test' }),
     ).rejects.toThrow(DdgApiError);
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(mockHttpGet).toHaveBeenCalledTimes(1);
   });
 
   it('throws DdgApiError with statusCode and body on non-ok response', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      mockErrorResponse(429, 'Too many requests'),
-    );
+    mockHttpGet.mockResolvedValue(mockErrorResponse(429, 'Too many requests'));
 
     let err: unknown;
     try {
@@ -237,13 +219,11 @@ describe('ddgGet', () => {
   });
 
   it('throws DdgApiError when JSON parsing fails', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
+    mockHttpGet.mockResolvedValue({
       status: 200,
-      headers: new Headers({ 'content-type': 'application/json' }),
-      json: () => Promise.reject(new Error('Unexpected token')),
-      text: () => Promise.resolve('not json'),
-    } as Response);
+      body: 'not json',
+      headers: { 'content-type': 'application/json' },
+    });
 
     await expect(
       ddgGet('links.duckduckgo.com/d.js', { q: 'test' }),
@@ -251,15 +231,12 @@ describe('ddgGet', () => {
   });
 
   it('throws DdgApiError on all retries exhausted', async () => {
-    vi.spyOn(globalThis, 'fetch').mockRejectedValue(
-      new Error('Network down'),
-    );
+    mockHttpGet.mockRejectedValue(new Error('Network down'));
 
     await expect(
       ddgGet('links.duckduckgo.com/d.js', { q: 'test' }, { maxRetries: 1 }),
     ).rejects.toThrow(DdgApiError);
 
-    // Verify error message includes something about network
     await expect(
       ddgGet('links.duckduckgo.com/d.js', { q: 'test' }, { maxRetries: 1 }),
     ).rejects.toThrow('Network');
@@ -276,9 +253,7 @@ describe('ddgPost', () => {
 
   it('calls getVqdToken with the query and default region', async () => {
     const { getVqdToken } = await import('./vqd.js');
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      mockJsonResponse({ answer: '42' }),
-    );
+    mockHttpPost.mockResolvedValue(mockJsonResponse({ answer: '42' }));
 
     await ddgPost('duckduckgo.com/qna', 'the question', {});
 
@@ -289,9 +264,7 @@ describe('ddgPost', () => {
 
   it('passes region option to getVqdToken', async () => {
     const { getVqdToken } = await import('./vqd.js');
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      mockJsonResponse({ answer: '42' }),
-    );
+    mockHttpPost.mockResolvedValue(mockJsonResponse({ answer: '42' }));
 
     await ddgPost(
       'duckduckgo.com/qna',
@@ -304,14 +277,12 @@ describe('ddgPost', () => {
   });
 
   it('builds the correct URL with signal and upgradable', async () => {
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      mockJsonResponse({ answer: '42' }),
-    );
+    mockHttpPost.mockResolvedValue(mockJsonResponse({ answer: '42' }));
 
     await ddgPost('duckduckgo.com/qna', 'hello world', {});
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(mockHttpPost).toHaveBeenCalledTimes(1);
+    const [url] = mockHttpPost.mock.calls[0] as [string, string, Record<string, string>, number];
 
     expect(url).toContain('duckduckgo.com/qna');
     expect(url).toContain('q=hello%20world');
@@ -320,20 +291,16 @@ describe('ddgPost', () => {
   });
 
   it('uses signal=low by default', async () => {
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      mockJsonResponse({ answer: '42' }),
-    );
+    mockHttpPost.mockResolvedValue(mockJsonResponse({ answer: '42' }));
 
     await ddgPost('duckduckgo.com/qna', 'test', {});
 
-    const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const [url] = mockHttpPost.mock.calls[0] as [string, string, Record<string, string>, number];
     expect(url).toContain('signal=low');
   });
 
   it('uses signal=high when specified', async () => {
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      mockJsonResponse({ answer: '42' }),
-    );
+    mockHttpPost.mockResolvedValue(mockJsonResponse({ answer: '42' }));
 
     await ddgPost(
       'duckduckgo.com/qna',
@@ -342,35 +309,30 @@ describe('ddgPost', () => {
       { signal: 'high' },
     );
 
-    const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const [url] = mockHttpPost.mock.calls[0] as [string, string, Record<string, string>, number];
     expect(url).toContain('signal=high');
   });
 
   it('sends POST request with JSON body and DDG_HEADERS', async () => {
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      mockJsonResponse({ answer: '42' }),
-    );
+    mockHttpPost.mockResolvedValue(mockJsonResponse({ answer: '42' }));
 
     const body = { query: 'test', someKey: 'value' };
     await ddgPost('duckduckgo.com/qna', 'test', body);
 
-    const [, options] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(options.method).toBe('POST');
-    expect(options.headers).toEqual(
+    const [, postBody, headers] = mockHttpPost.mock.calls[0] as [string, string, Record<string, string>, number];
+    expect(headers).toEqual(
       expect.objectContaining({
         'Content-Type': 'application/json',
         Accept: '*/*',
         Origin: 'https://duckduckgo.com',
       }),
     );
-    expect(JSON.parse(options.body as string)).toEqual(body);
+    expect(JSON.parse(postBody)).toEqual(body);
   });
 
   it('returns parsed JSON response', async () => {
     const data = { answer: 'The answer is 42', results: [] };
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      mockJsonResponse(data),
-    );
+    mockHttpPost.mockResolvedValue(mockJsonResponse(data));
 
     const result = await ddgPost<{ answer: string; results: Array<unknown> }>(
       'duckduckgo.com/qna',
@@ -382,9 +344,7 @@ describe('ddgPost', () => {
   });
 
   it('throws DdgApiError on non-ok response', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      mockErrorResponse(403, 'Forbidden'),
-    );
+    mockHttpPost.mockResolvedValue(mockErrorResponse(403, 'Forbidden'));
 
     await expect(
       ddgPost('duckduckgo.com/qna', 'test', {}),
@@ -392,13 +352,11 @@ describe('ddgPost', () => {
   });
 
   it('throws DdgApiError on JSON parse failure', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
+    mockHttpPost.mockResolvedValue({
       status: 200,
-      headers: new Headers({ 'content-type': 'application/json' }),
-      json: () => Promise.reject(new Error('parse error')),
-      text: () => Promise.resolve('bad json'),
-    } as Response);
+      body: 'bad json',
+      headers: { 'content-type': 'application/json' },
+    });
 
     await expect(
       ddgPost('duckduckgo.com/qna', 'test', {}),
@@ -415,9 +373,7 @@ describe('rate limiting', () => {
   });
 
   it('allows a single request without delay', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      mockJsonResponse({ ok: true }),
-    );
+    mockHttpGet.mockResolvedValue(mockJsonResponse({ ok: true }));
 
     const start = Date.now();
     await ddgGet('links.duckduckgo.com/d.js', { q: 'test' });
@@ -428,9 +384,7 @@ describe('rate limiting', () => {
   });
 
   it('enforces minimum 200ms gap between successive requests', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      mockJsonResponse({ ok: true }),
-    );
+    mockHttpGet.mockResolvedValue(mockJsonResponse({ ok: true }));
 
     const start = Date.now();
     await ddgGet('links.duckduckgo.com/d.js', { q: 'first' });
@@ -442,16 +396,11 @@ describe('rate limiting', () => {
   });
 
   it('does not delay when 200ms has already elapsed', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      mockJsonResponse({ ok: true }),
-    );
+    mockHttpGet.mockResolvedValue(mockJsonResponse({ ok: true }));
 
     await ddgGet('links.duckduckgo.com/d.js', { q: 'first' });
     await new Promise((r) => setTimeout(r, 300));
-    // Reset mock so fetch is fast
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      mockJsonResponse({ ok: true }),
-    );
+    mockHttpGet.mockResolvedValue(mockJsonResponse({ ok: true }));
 
     const start = Date.now();
     await ddgGet('links.duckduckgo.com/d.js', { q: 'second' });
