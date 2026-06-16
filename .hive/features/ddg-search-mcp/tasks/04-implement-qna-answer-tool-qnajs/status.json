@@ -1,0 +1,8 @@
+{
+  "status": "pending",
+  "origin": "plan",
+  "planTitle": "Implement QnA Answer Tool (qna.js)",
+  "dependsOn": [
+    "03-xy-dng-ddg-api-client"
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "status": "pending",
+  "origin": "plan",
+  "planTitle": "Build MCP Server + Đăng ký Tools",
+  "dependsOn": [
+    "04-implement-qna-answer-tool-qnajs",
+    "05-implement-web-search-tool-djs",
+    "06-implement-news-search-tool-newsjs",
+    "07-implement-content-fetch-tool"
+  ]
+}

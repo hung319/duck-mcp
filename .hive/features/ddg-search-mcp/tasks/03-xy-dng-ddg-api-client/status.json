@@ -1,0 +1,8 @@
+{
+  "status": "pending",
+  "origin": "plan",
+  "planTitle": "Xây dựng DDG API Client",
+  "dependsOn": [
+    "02-xy-dng-vqd-manager"
+  ]
+}

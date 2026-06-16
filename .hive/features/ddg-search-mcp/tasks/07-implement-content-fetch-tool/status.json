@@ -1,0 +1,8 @@
+{
+  "status": "pending",
+  "origin": "plan",
+  "planTitle": "Implement Content Fetch Tool",
+  "dependsOn": [
+    "01-khi-to-project--dependencies"
+  ]
+}

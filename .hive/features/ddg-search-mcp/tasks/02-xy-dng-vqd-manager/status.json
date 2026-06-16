@@ -1,0 +1,8 @@
+{
+  "status": "pending",
+  "origin": "plan",
+  "planTitle": "Xây dựng VQD Manager",
+  "dependsOn": [
+    "01-khi-to-project--dependencies"
+  ]
+}

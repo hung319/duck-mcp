@@ -1,0 +1,8 @@
+{
+  "status": "pending",
+  "origin": "plan",
+  "planTitle": "Test full flow",
+  "dependsOn": [
+    "08-build-mcp-server--ng-k-tools"
+  ]
+}
