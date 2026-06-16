@@ -1,5 +1,5 @@
 {
-  "status": "pending",
+  "status": "done",
   "origin": "plan",
   "planTitle": "Build MCP Server + Đăng ký Tools",
   "dependsOn": [
@@ -7,5 +7,11 @@
     "05-implement-web-search-tool-djs",
     "06-implement-news-search-tool-newsjs",
     "07-implement-content-fetch-tool"
-  ]
+  ],
+  "baseCommit": "4a6b1bce47af86486a2ac6bfc41b911e5cb7c588",
+  "schemaVersion": 1,
+  "startedAt": "2026-06-16T07:12:36.788Z",
+  "idempotencyKey": "hive-ddg-search-mcp-08-build-mcp-server--ng-k-tools-1",
+  "summary": "Built MCP server entry point (src/index.ts) with 4 tools (ddg_get_answer, ddg_search, ddg_search_news, ddg_fetch_content). Each tool imports from existing modules, wraps in individual try-catch, returns Markdown-formatted content. All handlers return { content: [{ type: \"text\", text }] } per MCP spec. package.json already had start script. TDD: wrote test first (spawns server, does MCP init handshake, verifies tools/list returns 4 tools). 71 tests pass, typecheck clean, tools/list verification succeeds.",
+  "completedAt": "2026-06-16T07:15:38.549Z"
 }

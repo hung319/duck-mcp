@@ -1,8 +1,14 @@
 {
-  "status": "pending",
+  "status": "done",
   "origin": "plan",
   "planTitle": "Implement News Search Tool (news.js)",
   "dependsOn": [
     "03-xy-dng-ddg-api-client"
-  ]
+  ],
+  "baseCommit": "39296df534c751c81adeea722c4aeb5ee728d761",
+  "schemaVersion": 1,
+  "startedAt": "2026-06-16T07:08:27.312Z",
+  "idempotencyKey": "hive-ddg-search-mcp-06-implement-news-search-tool-newsjs-1",
+  "summary": "Created src/news.ts with NewsItem interface and newsSearch() function. Uses ddgGet to fetch from duckduckgo.com/news.js, maps response fields (excerpt→snippet), defaults missing strings to '', default maxResults 5. Added 8 unit tests covering endpoint params, response mapping, maxResults, empty results, and edge cases. All tests pass, typecheck clean, no regressions.",
+  "completedAt": "2026-06-16T07:11:27.147Z"
 }

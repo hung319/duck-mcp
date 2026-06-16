@@ -4,7 +4,7 @@
 
 ## Dependencies
 
-- **1. Khởi tạo project + dependencies** (01-khi-to-project--dependencies)
+- **1. khi-to-project--dependencies** (01-khi-to-project--dependencies)
 
 ## Plan Section
 
@@ -69,3 +69,7 @@ export async function fetchContent(url: string, maxLength?: number): Promise<Fet
 ## Task Type
 
 greenfield
+
+## Completed Tasks
+
+- 01-khi-to-project--dependencies: Created ddg-search-mcp/package.json, tsconfig.json, .gitignore. Installed all 100 packages (dependencies + devDependencies). npm install exit 0. typecheck errors expectedly (no src yet). Noted: NODE_ENV=production was set, needed --include=dev for devDependencies.

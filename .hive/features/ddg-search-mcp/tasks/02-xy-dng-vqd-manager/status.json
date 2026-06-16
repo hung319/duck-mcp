@@ -1,8 +1,14 @@
 {
-  "status": "pending",
+  "status": "done",
   "origin": "plan",
   "planTitle": "Xây dựng VQD Manager",
   "dependsOn": [
     "01-khi-to-project--dependencies"
-  ]
+  ],
+  "baseCommit": "b84e9a4190f5793c733d9f04730010c5d5523944",
+  "schemaVersion": 1,
+  "startedAt": "2026-06-16T06:55:59.598Z",
+  "idempotencyKey": "hive-ddg-search-mcp-02-xy-dng-vqd-manager-1",
+  "summary": "Created src/vqd.ts with VQD Manager: getVqdToken() function, VqdOptions interface, in-memory cache (Map, TTL 5min, key=query:region), POST to duckduckgo.com with browser-like headers, x-vqd-4 header extraction, retry logic (2x with 200/500ms backoff), 403/429 no-retry. Exported DDG_HEADERS for project-wide reuse. Added vitest, 11 unit tests all pass, typecheck clean. Live DDG integration not runnable due to sandbox network restriction (Node.js connect timeout vs curl works — noted in learnings).",
+  "completedAt": "2026-06-16T07:01:06.353Z"
 }
