@@ -7,6 +7,8 @@ import { newsSearch } from "./news.js";
 import { fetchContent } from "./fetch.js";
 import { imageSearch } from "./images.js";
 import { videoSearch } from "./videos.js";
+import { getSuggestions } from "./suggest.js";
+import { getDefinition, convertCurrency } from "./instant.js";
 
 // ─── Shared schemas ────────────────────────────────────────────────────
 
@@ -419,6 +421,148 @@ server.tool(
           {
             type: "text" as const,
             text: `Error fetching content: ${err instanceof Error ? err.message : String(err)}`,
+          },
+        ],
+      };
+    }
+  },
+);
+
+// ─── Tool 7: ddg_get_suggestions ──────────────────────────────────────────
+
+server.tool(
+  "ddg_get_suggestions",
+  "Get search suggestions from DuckDuckGo auto-complete",
+  {
+    query: z.string().min(1).describe("Search query to get suggestions for"),
+    region: z.string().optional().default("wt-wt").describe("Region code (e.g. 'us-en', 'de-de', 'wt-wt' for worldwide)"),
+  },
+  async ({ query, region }) => {
+    try {
+      const suggestions = await getSuggestions(query, { region });
+
+      if (!suggestions || suggestions.length === 0) {
+        return {
+          content: [{ type: "text" as const, text: "No suggestions found." }],
+        };
+      }
+
+      const lines: string[] = [];
+      lines.push(`# Suggestions for "${query}"\n`);
+
+      for (let i = 0; i < suggestions.length; i++) {
+        lines.push(`${i + 1}. ${suggestions[i]}`);
+      }
+
+      lines.push(`\n---\n*${suggestions.length} suggestions*`);
+
+      return {
+        content: [{ type: "text" as const, text: lines.join("\n") }],
+      };
+    } catch (err) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Error fetching suggestions: ${err instanceof Error ? err.message : String(err)}`,
+          },
+        ],
+      };
+    }
+  },
+);
+
+// ─── Tool 8: ddg_get_definition ──────────────────────────────────────────
+
+server.tool(
+  "ddg_get_definition",
+  "Get dictionary definition from DuckDuckGo",
+  {
+    word: z.string().min(1).describe("The word to look up"),
+  },
+  async ({ word }) => {
+    try {
+      const definitions = await getDefinition(word);
+
+      if (!definitions || definitions.length === 0) {
+        return {
+          content: [{ type: "text" as const, text: `No definitions found for "${word}".` }],
+        };
+      }
+
+      const lines: string[] = [];
+      lines.push(`# Definitions for "${word}"\n`);
+
+      for (const def of definitions) {
+        lines.push(`**Word**: ${def.word}`);
+        lines.push(`**Part of Speech**: ${def.partOfSpeech}`);
+        lines.push(`**Definition**: ${def.text}`);
+        lines.push(`**Source**: ${def.sourceDictionary}`);
+        if (def.wordnikUrl) lines.push(`**Link**: ${def.wordnikUrl}`);
+        if (def.attributionText) lines.push(`**Attribution**: ${def.attributionText}`);
+        lines.push("");
+      }
+
+      lines.push(`---\n*${definitions.length} definition(s)*`);
+
+      return {
+        content: [{ type: "text" as const, text: lines.join("\n") }],
+      };
+    } catch (err) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Error fetching definition: ${err instanceof Error ? err.message : String(err)}`,
+          },
+        ],
+      };
+    }
+  },
+);
+
+// ─── Tool 9: ddg_convert_currency ────────────────────────────────────────
+
+server.tool(
+  "ddg_convert_currency",
+  "Convert currency using DuckDuckGo exchange rates",
+  {
+    amount: z.number().positive().describe("Amount to convert"),
+    from: z.string().min(1).describe("Source currency code (e.g. 'usd', 'eur')"),
+    to: z.string().min(1).describe("Target currency code (e.g. 'eur', 'jpy')"),
+  },
+  async ({ amount, from, to }) => {
+    try {
+      const result = await convertCurrency(amount, from, to);
+
+      if (!result.to || result.to.length === 0) {
+        return {
+          content: [{ type: "text" as const, text: "No conversion rates found." }],
+        };
+      }
+
+      const lines: string[] = [];
+      lines.push(`# Currency Conversion\n`);
+      lines.push(`**Amount**: ${result.amount} ${result.from.toUpperCase()}`);
+      lines.push(`**Timestamp**: ${result.timestamp}`);
+      lines.push("");
+
+      for (const rate of result.to) {
+        const converted = (result.amount * rate.rate).toFixed(2);
+        lines.push(`**${rate.currency.toUpperCase()}**: ${converted} (rate: ${rate.rate})`);
+      }
+
+      lines.push(`\n---\n*Rates from DuckDuckGo*`);
+
+      return {
+        content: [{ type: "text" as const, text: lines.join("\n") }],
+      };
+    } catch (err) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Error converting currency: ${err instanceof Error ? err.message : String(err)}`,
           },
         ],
       };
