@@ -78,7 +78,7 @@ describe('MCP Server', () => {
     }
   });
 
-  it('should respond to tools/list with 6 DuckDuckGo tools', async () => {
+  it('should respond to tools/list with 9 DuckDuckGo tools', async () => {
     proc = spawn('npx', ['tsx', resolve(__dirname, 'index.ts')], {
       stdio: ['pipe', 'pipe', 'pipe'],
       env: { ...process.env, NODE_ENV: 'test' },
@@ -107,7 +107,7 @@ describe('MCP Server', () => {
     const result = response.result as Record<string, unknown>;
     expect(result.tools).toBeDefined();
     const tools = result.tools as Array<{ name: string; description?: string; inputSchema?: unknown }>;
-    expect(tools).toHaveLength(6);
+    expect(tools).toHaveLength(9);
 
     const toolNames = tools.map((t) => t.name);
     expect(toolNames).toEqual([
@@ -117,6 +117,9 @@ describe('MCP Server', () => {
       'ddg_search_images',
       'ddg_search_videos',
       'ddg_fetch_content',
+      'ddg_get_suggestions',
+      'ddg_get_definition',
+      'ddg_convert_currency',
     ]);
 
     // 4. Verify each tool has a description and inputSchema
