@@ -1,3 +1,5 @@
+import { tlsFetch } from './tls.js';
+
 export interface FetchedContent {
   title: string;
   content: string;   // Plain text, whitespace-normalized
@@ -5,13 +7,7 @@ export interface FetchedContent {
   description?: string;
 }
 
-const BROWSER_HEADERS: Record<string, string> = {
-  'User-Agent':
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36',
-  'Accept':
-    'text/html,application/xhtml+xml,application/xml;q=0.9,application/json;q=0.8,*/*;q=0.7',
-  'Accept-Language': 'en-US,en;q=0.9',
-};
+// ─── URL Validation ────────────────────────────────────────────────────
 
 const PRIVATE_IP_PATTERNS = [
   /^127\./,       // loopback
@@ -64,16 +60,18 @@ function validateUrl(raw: string): URL {
   return parsed;
 }
 
+// ─── HTML Parsing ──────────────────────────────────────────────────────
+
 function extractMetaDescription(html: string): string | undefined {
   // Match <meta name="description" content="...">
   const match = html.match(
-    /<meta\s[^>]*name=["']description["'][^>]*content=["']([^"']*)["'][^>]*\/?>/i
+    /<meta\s[^>]*name=["']description["'][^>]*content=["']([^"']*)["'][^>]*\/?>/i,
   );
   if (match) return match[1];
 
   // Also try reversed attribute order
   const match2 = html.match(
-    /<meta\s[^>]*content=["']([^"']*)["'][^>]*name=["']description["'][^>]*\/?>/i
+    /<meta\s[^>]*content=["']([^"']*)["'][^>]*name=["']description["'][^>]*\/?>/i,
   );
   return match2?.[1];
 }
@@ -100,7 +98,10 @@ function normalizeWhitespace(text: string): string {
  * Case-insensitive, handles nested tags.
  */
 function stripBlock(raw: string, tag: string): string {
-  const tagPattern = new RegExp(`<${tag}[\\s>][\\s\\S]*?<\\/${tag}>|<${tag}>[\\s\\S]*?<\\/${tag}>`, 'gi');
+  const tagPattern = new RegExp(
+    `<${tag}[\\s>][\\s\\S]*?<\\/${tag}>|<${tag}>[\\s\\S]*?<\\/${tag}>`,
+    'gi',
+  );
   return raw.replace(tagPattern, '');
 }
 
@@ -142,17 +143,20 @@ function extractHtml(html: string, url: string, maxLength: number): FetchedConte
   };
 }
 
+// ─── Main export ───────────────────────────────────────────────────────
+
 /**
  * Fetch a URL and extract its main content.
  *
  * - URL validation: only http/https, rejects private IPs and localhost
+ * - TLS fingerprint: Chrome-like via tls.ts (avoids bot detection)
  * - Timeout: 15 seconds
+ * - Redirects: follows up to 5 redirects
  * - Content extraction: regex-based (no cheerio dependency)
  * - Supports text/html and application/json content types
  *
  * @param url - The URL to fetch
  * @param maxLength - Maximum content length in characters (default: 5000)
- * @param timeoutMs - Request timeout in milliseconds (default: 15000, internal)
  */
 export async function fetchContent(
   url: string,
@@ -161,40 +165,48 @@ export async function fetchContent(
   const parsed = validateUrl(url);
   const effectiveUrl = parsed.href;
 
-  let response: Response;
+  let response: { status: number; body: string; finalUrl: string };
   try {
-    response = await fetch(effectiveUrl, {
-      signal: AbortSignal.timeout(15000),
-      headers: BROWSER_HEADERS,
-      redirect: 'follow',
+    response = await tlsFetch(effectiveUrl, {
+      timeout: 15000,
+      maxRedirects: 5,
+      headers: {
+        Accept:
+          'text/html,application/xhtml+xml,application/xml;q=0.9,application/json;q=0.8,*/*;q=0.7',
+        'Accept-Language': 'en-US,en;q=0.9',
+      },
     });
   } catch (err) {
-    if (err instanceof DOMException && err.name === 'TimeoutError') {
+    if (err instanceof Error && err.message === 'Request timeout') {
       throw new Error('Request timeout');
     }
     throw err;
   }
 
-  if (!response.ok) {
+  if (response.status < 200 || response.status >= 300) {
     throw new Error(`HTTP ${response.status}`);
   }
 
-  const contentType = response.headers.get('content-type') ?? '';
-  const text = await response.text();
+  const text = response.body;
 
   if (text.length < 50) {
     throw new Error('No content found');
   }
 
+  // Detect content type from response headers (via finalUrl or content-type)
+  // Simple heuristic: if URL contains /api/ or response starts with { or [, treat as JSON
+  const looksLikeJson =
+    text.trim().startsWith('{') || text.trim().startsWith('[');
+
   // Handle JSON responses
-  if (contentType.includes('application/json')) {
+  if (looksLikeJson && !text.trim().startsWith('<')) {
     return {
       title: '',
       content: text,
-      url: effectiveUrl,
+      url: response.finalUrl,
     };
   }
 
   // Handle HTML responses (default)
-  return extractHtml(text, effectiveUrl, maxLength);
+  return extractHtml(text, response.finalUrl, maxLength);
 }

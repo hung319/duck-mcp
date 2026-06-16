@@ -10,8 +10,10 @@ export interface SearchResult {
 }
 
 export interface SearchOptions {
-  maxResults?: number; // default 10
-  region?: string;     // default 'wt-wt'
+  maxResults?: number;
+  region?: string;
+  safesearch?: 'on' | 'moderate' | 'off';
+  timeFilter?: 'day' | 'week' | 'month' | 'year';
 }
 
 // ─── Internal types for raw DDG response ───────────────────────────────
@@ -23,11 +25,29 @@ interface RawDdgResult {
   s?: string; // source / hostname
 }
 
+// ─── Helpers ───────────────────────────────────────────────────────────
+
+const SAFESEARCH_MAP: Record<string, string> = {
+  on: '1',
+  moderate: '-1',
+  off: '-2',
+};
+
+const TIMEFILTER_MAP: Record<string, string> = {
+  day: 'd',
+  week: 'w',
+  month: 'm',
+  year: 'y',
+};
+
 // ─── webSearch ──────────────────────────────────────────────────────────
 
 /**
  * Web search via DuckDuckGo d.js endpoint.
  * Returns organic results (title, url, description, hostname).
+ *
+ * @param query - Search query
+ * @param options - Optional: maxResults, region, safesearch, timeFilter
  */
 export async function webSearch(
   query: string,
@@ -36,11 +56,24 @@ export async function webSearch(
   const trimmedQuery = query.trim();
   const maxResults = options?.maxResults ?? 10;
 
+  // Build query parameters
+  const params: Record<string, string> = {
+    q: trimmedQuery,
+    p: '1', // default safesearch = moderate
+  };
+
+  if (options?.safesearch) {
+    params.p = SAFESEARCH_MAP[options.safesearch];
+  }
+  if (options?.timeFilter) {
+    params.df = TIMEFILTER_MAP[options.timeFilter];
+  }
+
   let rawResults: RawDdgResult[] | null | undefined;
   try {
     rawResults = await ddgGet<RawDdgResult[]>(
       'links.duckduckgo.com/d.js',
-      { q: trimmedQuery, p: '1' },
+      params,
       options?.region ? { region: options.region } : undefined,
     );
   } catch (err) {

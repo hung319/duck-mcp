@@ -97,7 +97,7 @@ describe('newsSearch', () => {
     }));
     mockDdgGet.mockResolvedValue(manyItems);
 
-    const results = await newsSearch('technology', 3);
+    const results = await newsSearch('technology', { maxResults: 3 });
 
     expect(results).toHaveLength(3);
   });

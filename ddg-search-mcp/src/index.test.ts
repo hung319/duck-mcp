@@ -78,7 +78,7 @@ describe('MCP Server', () => {
     }
   });
 
-  it('should respond to tools/list with 4 DuckDuckGo tools', async () => {
+  it('should respond to tools/list with 5 DuckDuckGo tools', async () => {
     proc = spawn('npx', ['tsx', resolve(__dirname, 'index.ts')], {
       stdio: ['pipe', 'pipe', 'pipe'],
       env: { ...process.env, NODE_ENV: 'test' },
@@ -107,13 +107,14 @@ describe('MCP Server', () => {
     const result = response.result as Record<string, unknown>;
     expect(result.tools).toBeDefined();
     const tools = result.tools as Array<{ name: string; description?: string; inputSchema?: unknown }>;
-    expect(tools).toHaveLength(4);
+    expect(tools).toHaveLength(5);
 
     const toolNames = tools.map((t) => t.name);
     expect(toolNames).toEqual([
       'ddg_get_answer',
       'ddg_search',
       'ddg_search_news',
+      'ddg_search_images',
       'ddg_fetch_content',
     ]);
 

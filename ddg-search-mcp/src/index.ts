@@ -5,12 +5,19 @@ import { getAnswer } from "./qna.js";
 import { webSearch } from "./search.js";
 import { newsSearch } from "./news.js";
 import { fetchContent } from "./fetch.js";
+import { imageSearch } from "./images.js";
+
+// ─── Shared schemas ────────────────────────────────────────────────────
+
+const safesearchSchema = z.enum(["on", "moderate", "off"]).optional().describe("SafeSearch level (default: moderate)");
+const timeFilterSchema = z.enum(["day", "week", "month", "year"]).optional().describe("Time filter for results");
+const regionSchema = z.string().optional().describe("Region code (e.g. 'us-en', 'vn-vi', 'wt-wt' for worldwide)");
 
 // ─── MCP Server ─────────────────────────────────────────────────────────
 
 const server = new McpServer({
   name: "ddg-search-mcp",
-  version: "1.0.0",
+  version: "1.1.0",
 });
 
 // ─── Tool 1: ddg_get_answer ─────────────────────────────────────────────
@@ -20,10 +27,11 @@ server.tool(
   "Get an AI-powered answer with sources for a question (like Exa Answer). Uses DuckDuckGo Instant Answer engine with Wikipedia.",
   {
     query: z.string().min(1).describe("The question or search query"),
+    region: regionSchema.describe("Region code for localized answers"),
   },
-  async ({ query }) => {
+  async ({ query, region }) => {
     try {
-      const result = await getAnswer(query);
+      const result = await getAnswer(query, { region });
       if (!result) {
         return {
           content: [{ type: "text" as const, text: "No answer found for this query." }],
@@ -31,10 +39,10 @@ server.tool(
       }
 
       const lines: string[] = [];
-      lines.push(`## Answer\n${result.answer}\n`);
+      lines.push(`## Answer\n\n${result.answer}\n`);
 
       if (result.expandedAnswer) {
-        lines.push(`## Details\n${result.expandedAnswer}\n`);
+        lines.push(`## Details\n\n${result.expandedAnswer}\n`);
       }
 
       if (result.sources && result.sources.length > 0) {
@@ -77,17 +85,18 @@ server.tool(
       .max(50)
       .optional()
       .default(10)
-      .describe("Maximum results to return (default 10)"),
-    region: z
-      .string()
-      .optional()
-      .describe("Region code (e.g. 'us-en', 'vn-vi', 'wt-wt' for worldwide)"),
+      .describe("Maximum results to return (default 10, max 50)"),
+    region: regionSchema,
+    safesearch: safesearchSchema,
+    freshness: timeFilterSchema.describe("Filter by time: 'day', 'week', 'month', 'year'"),
   },
-  async ({ query, maxResults, region }) => {
+  async ({ query, maxResults, region, safesearch, freshness }) => {
     try {
       const results = await webSearch(query, {
         maxResults,
         ...(region ? { region } : {}),
+        ...(safesearch ? { safesearch } : {}),
+        ...(freshness ? { timeFilter: freshness } : {}),
       });
 
       if (!results || results.length === 0) {
@@ -97,14 +106,13 @@ server.tool(
       }
 
       const lines: string[] = [];
-      lines.push(`## Search Results for "${query}"\n`);
+      lines.push(`# Search Results for "${query}"\n`);
 
       for (let i = 0; i < results.length; i++) {
         const r = results[i];
-        lines.push(`### ${i + 1}. ${r.title}`);
-        if (r.description) lines.push(`${r.description}`);
-        lines.push(`- **URL**: ${r.url}`);
-        if (r.hostname) lines.push(`- **Source**: ${r.hostname}`);
+        lines.push(`## ${i + 1}. [${r.title}](${r.url})`);
+        if (r.description) lines.push(`\n${r.description}\n`);
+        if (r.hostname) lines.push(`\`${r.hostname}\``);
         lines.push("");
       }
 
@@ -136,14 +144,22 @@ server.tool(
     maxResults: z
       .number()
       .min(1)
-      .max(20)
+      .max(30)
       .optional()
       .default(5)
-      .describe("Maximum news results (default 5)"),
+      .describe("Maximum news results (default 5, max 30)"),
+    region: regionSchema,
+    safesearch: safesearchSchema,
+    freshness: timeFilterSchema.describe("Filter by time: 'day', 'week', 'month', 'year'"),
   },
-  async ({ query, maxResults }) => {
+  async ({ query, maxResults, region, safesearch, freshness }) => {
     try {
-      const results = await newsSearch(query, maxResults);
+      const results = await newsSearch(query, {
+        maxResults,
+        ...(region ? { region } : {}),
+        ...(safesearch ? { safesearch } : {}),
+        ...(freshness ? { timeFilter: freshness } : {}),
+      });
 
       if (!results || results.length === 0) {
         return {
@@ -152,16 +168,17 @@ server.tool(
       }
 
       const lines: string[] = [];
-      lines.push(`## News Results for "${query}"\n`);
+      lines.push(`# News Results for "${query}"\n`);
 
       for (let i = 0; i < results.length; i++) {
         const r = results[i];
-        lines.push(`### ${i + 1}. ${r.title}`);
-        if (r.snippet) lines.push(`${r.snippet}`);
-        lines.push(`- **Source**: ${r.source}`);
-        lines.push(`- **Date**: ${r.date}`);
-        lines.push(`- **URL**: ${r.url}`);
-        if (r.image) lines.push(`- ![Thumbnail](${r.image})`);
+        lines.push(`## ${i + 1}. [${r.title}](${r.url})`);
+        if (r.snippet) lines.push(`\n${r.snippet}\n`);
+        lines.push(`| | |`);
+        lines.push(`|---|---|`);
+        lines.push(`| **Source** | ${r.source} |`);
+        lines.push(`| **Date** | ${r.date} |`);
+        if (r.image) lines.push(`| **Image** | ![Thumbnail](${r.image}) |`);
         lines.push("");
       }
 
@@ -183,11 +200,110 @@ server.tool(
   },
 );
 
-// ─── Tool 4: ddg_fetch_content ──────────────────────────────────────────
+// ─── Tool 4: ddg_search_images ──────────────────────────────────────────
+
+server.tool(
+  "ddg_search_images",
+  "Search images using DuckDuckGo. Returns image results with direct URLs, thumbnails, and metadata.",
+  {
+    query: z.string().min(1).describe("Image search query"),
+    maxResults: z
+      .number()
+      .min(1)
+      .max(50)
+      .optional()
+      .default(10)
+      .describe("Maximum image results (default 10, max 50)"),
+    region: regionSchema,
+    safesearch: safesearchSchema,
+    freshness: timeFilterSchema.describe("Filter by time: 'day', 'week', 'month', 'year'"),
+    size: z
+      .enum(["Small", "Medium", "Large", "Wallpaper"])
+      .optional()
+      .describe("Filter by image size"),
+    color: z
+      .enum([
+        "color", "Monochrome", "Red", "Orange", "Yellow", "Green",
+        "Blue", "Purple", "Pink", "Brown", "Black", "Gray", "White",
+        "Teal", "Aqua",
+      ])
+      .optional()
+      .describe("Filter by dominant color"),
+    type: z
+      .enum(["photo", "clipart", "gif", "transparent", "line"])
+      .optional()
+      .describe("Filter by image type"),
+    layout: z
+      .enum(["Square", "Tall", "Wide"])
+      .optional()
+      .describe("Filter by image layout/aspect ratio"),
+    license: z
+      .enum(["Share", "ShareCommercially", "Modify", "ModifyCommercially"])
+      .optional()
+      .describe("Filter by license"),
+  },
+  async ({ query, maxResults, region, safesearch, freshness, size, color, type, layout, license }) => {
+    try {
+      const results = await imageSearch(query, {
+        maxResults,
+        ...(region ? { region } : {}),
+        ...(safesearch ? { safesearch } : {}),
+        ...(freshness ? { timeFilter: freshness } : {}),
+        ...(size ? { size } : {}),
+        ...(color ? { color } : {}),
+        ...(type ? { type } : {}),
+        ...(layout ? { layout } : {}),
+        ...(license ? { license } : {}),
+      });
+
+      if (!results || results.length === 0) {
+        return {
+          content: [{ type: "text" as const, text: "No image results found." }],
+        };
+      }
+
+      const lines: string[] = [];
+      lines.push(`# Image Results for "${query}"\n`);
+
+      for (let i = 0; i < results.length; i++) {
+        const r = results[i];
+        lines.push(`## ${i + 1}. ${r.title}`);
+        lines.push(``);
+        lines.push(`![](${r.imageUrl})`);
+        lines.push(``);
+        lines.push(`| | |`);
+        lines.push(`|---|---|`);
+        lines.push(`| **Source** | [${r.sourceName}](${r.sourceUrl}) |`);
+        lines.push(`| **Dimensions** | ${r.width}×${r.height}px |`);
+        if (r.thumbnailUrl && r.thumbnailUrl !== r.imageUrl) {
+          lines.push(`| **Thumbnail** | [Link](${r.thumbnailUrl}) |`);
+        }
+        lines.push("");
+      }
+
+      lines.push(`---\n*${results.length} images*`);
+
+      return {
+        content: [{ type: "text" as const, text: lines.join("\n") }],
+      };
+    } catch (err) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Error fetching images: ${err instanceof Error ? err.message : String(err)}`,
+          },
+        ],
+      };
+    }
+  },
+);
+
+// ─── Tool 5: ddg_fetch_content ──────────────────────────────────────────
 
 server.tool(
   "ddg_fetch_content",
-  "Fetch and extract main content from a URL. Returns title, description, and text content.",
+  "Fetch and extract main content from a URL. Uses browser-grade TLS to avoid blocking. Returns title, description, and clean text content.",
   {
     url: z.string().url().describe("The URL to fetch content from"),
     maxLength: z
@@ -196,15 +312,15 @@ server.tool(
       .max(50000)
       .optional()
       .default(5000)
-      .describe("Maximum characters to return (default 5000)"),
+      .describe("Maximum characters to return (default 5000, max 50000)"),
   },
   async ({ url, maxLength }) => {
     try {
       const content = await fetchContent(url, maxLength);
 
       const lines: string[] = [];
-      if (content.title) lines.push(`# ${content.title}`);
-      if (content.description) lines.push(`> ${content.description}`);
+      if (content.title) lines.push(`# ${content.title}\n`);
+      if (content.description) lines.push(`> ${content.description}\n`);
       lines.push(`**URL**: ${content.url}\n`);
       lines.push(content.content);
 
