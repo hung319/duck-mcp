@@ -1,33 +1,29 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { SearchResult } from './search.js';
-import { DdgApiError } from './client.js';
+import { DdgApiError } from './errors.js';
 
-// Mock the client module
-vi.mock('./client.js', () => ({
-  ddgGet: vi.fn(),
-  DdgApiError: class extends Error {
-    declare statusCode?: number;
-    declare body?: string;
-    constructor(
-      message: string,
-      statusCode?: number,
-      body?: string,
-    ) {
-      super(message);
-      this.name = 'DdgApiError';
-      this.statusCode = statusCode;
-      this.body = body;
-    }
-  },
+// Mock httpPost
+vi.mock('./http.js', () => ({
+  httpPost: vi.fn(),
 }));
 
-function makeRawResult(overrides: Partial<Record<'t' | 'u' | 'a' | 's', string>> = {}) {
-  return {
-    t: overrides.t ?? 'Test Title',
-    u: overrides.u ?? 'https://example.com/page',
-    a: overrides.a ?? 'A test description for the result',
-    s: overrides.s ?? 'example.com',
-  };
+function makeSearchHtml(results: { title: string; url: string; snippet: string }[]): string {
+  const items = results.map(
+    (r) =>
+      `<div class="result results_links results_links_deep web-result ">
+        <div class="result__extras">
+          <div class="result__extras__url">
+            <a rel="nofollow" class="result__a" href="${r.url}">${r.title}</a>
+          </div>
+        </div>
+        <a class="result__snippet" href="${r.url}">${r.snippet}</a>
+      </div>`,
+  );
+  return `<html><body><div class="serp__results"><div class="results--main">${items.join('\n')}</div></div></body></html>`;
+}
+
+function makeResponse(html: string, status = 200) {
+  return { status, body: html, headers: {} };
 }
 
 // ─── webSearch ──────────────────────────────────────────────────────────
@@ -37,119 +33,87 @@ describe('webSearch', () => {
     vi.clearAllMocks();
   });
 
-  it('calls ddgGet with the correct endpoint and parameters', async () => {
-    const { ddgGet } = await import('./client.js');
-    vi.mocked(ddgGet).mockResolvedValue([makeRawResult()]);
+  it('posts to DDG HTML endpoint with query and browser headers', async () => {
+    const { httpPost } = await import('./http.js');
+    vi.mocked(httpPost).mockResolvedValue(makeResponse(makeSearchHtml([
+      { title: 'Test', url: 'https://example.com', snippet: '' },
+    ])));
     const { webSearch: ws } = await import('./search.js');
 
     await ws('hello world');
 
-    expect(ddgGet).toHaveBeenCalledWith(
-      'links.duckduckgo.com/d.js',
+    expect(httpPost).toHaveBeenCalledWith(
+      'https://html.duckduckgo.com/html/',
+      expect.stringContaining('q=hello+world'),
       expect.objectContaining({
-        q: 'hello world',
-        p: '1',
+        'Origin': 'https://html.duckduckgo.com',
+        'Referer': 'https://html.duckduckgo.com/html/',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'same-origin',
       }),
-      undefined,
+      10000,
     );
   });
 
-  it('passes region option to ddgGet', async () => {
-    const { ddgGet } = await import('./client.js');
-    vi.mocked(ddgGet).mockResolvedValue([makeRawResult()]);
+  it('passes region as kl parameter', async () => {
+    const { httpPost } = await import('./http.js');
+    vi.mocked(httpPost).mockResolvedValue(makeResponse(makeSearchHtml([
+      { title: 'Test', url: 'https://example.com', snippet: '' },
+    ])));
     const { webSearch: ws } = await import('./search.js');
 
-    await ws('test', { region: 'de-de' });
+    await ws('test', { region: 'vn-vi' });
 
-    expect(ddgGet).toHaveBeenCalledWith(
-      'links.duckduckgo.com/d.js',
-      expect.objectContaining({ q: 'test', p: '1' }),
-      { region: 'de-de' },
+    expect(httpPost).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.stringContaining('kl=vn-vi'),
+      expect.anything(),
+      10000,
     );
   });
 
-  it('maps raw response fields to SearchResult correctly', async () => {
-    const { ddgGet } = await import('./client.js');
-    const raw = makeRawResult({
-      t: 'DuckDuckGo',
-      u: 'https://duckduckgo.com/about',
-      a: 'Privacy-focused search engine',
-      s: 'duckduckgo.com',
+  it('parses search results correctly', async () => {
+    const { httpPost } = await import('./http.js');
+    vi.mocked(httpPost).mockResolvedValue(makeResponse(makeSearchHtml([
+      {
+        title: 'Hello World - Wikipedia',
+        url: 'https://en.wikipedia.org/wiki/Hello,_world',
+        snippet: 'A Hello, world program is a simple computer program.',
+      },
+      {
+        title: 'Hello World - Wikiversity',
+        url: 'https://en.wikiversity.org/wiki/Hello,_world!',
+        snippet: 'Hello World! by Brian Kernighan.',
+      },
+    ])));
+    const { webSearch: ws } = await import('./search.js');
+
+    const results = await ws('hello world');
+
+    expect(results).toHaveLength(2);
+    expect(results[0]).toEqual({
+      title: 'Hello World - Wikipedia',
+      url: 'https://en.wikipedia.org/wiki/Hello,_world',
+      description: 'A Hello, world program is a simple computer program.',
+      hostname: 'en.wikipedia.org',
     });
-    vi.mocked(ddgGet).mockResolvedValue([raw]);
-    const { webSearch: ws } = await import('./search.js');
-
-    const results = await ws('test');
-
-    expect(results).toHaveLength(1);
-    expect(results[0]).toEqual<SearchResult>({
-      title: 'DuckDuckGo',
-      url: 'https://duckduckgo.com/about',
-      description: 'Privacy-focused search engine',
-      hostname: 'duckduckgo.com',
+    expect(results[1]).toEqual({
+      title: 'Hello World - Wikiversity',
+      url: 'https://en.wikiversity.org/wiki/Hello,_world!',
+      description: 'Hello World! by Brian Kernighan.',
+      hostname: 'en.wikiversity.org',
     });
   });
 
-  it('handles empty response array', async () => {
-    const { ddgGet } = await import('./client.js');
-    vi.mocked(ddgGet).mockResolvedValue([]);
-    const { webSearch: ws } = await import('./search.js');
-
-    const results = await ws('test');
-
-    expect(results).toEqual([]);
-  });
-
-  it('handles null or undefined response gracefully', async () => {
-    const { ddgGet } = await import('./client.js');
-    vi.mocked(ddgGet).mockResolvedValue(null);
-    const { webSearch: ws } = await import('./search.js');
-
-    const results = await ws('test');
-
-    expect(results).toEqual([]);
-  });
-
-  it('filters out results without a valid url', async () => {
-    const { ddgGet } = await import('./client.js');
-    vi.mocked(ddgGet).mockResolvedValue([
-      makeRawResult({ u: 'https://valid.com/page' }),
-      makeRawResult({ u: '' }),
-      { t: 'No URL', a: 'desc', s: 'x.com' }, // no u at all
-    ]);
-    const { webSearch: ws } = await import('./search.js');
-
-    const results = await ws('test');
-
-    expect(results).toHaveLength(1);
-    expect(results[0].url).toBe('https://valid.com/page');
-  });
-
-  it('limits results to maxResults (default 10)', async () => {
-    const { ddgGet } = await import('./client.js');
-    const rawResults = Array.from({ length: 20 }, (_, i) =>
-      makeRawResult({
-        t: `Result ${i}`,
-        u: `https://example.com/page${i}`,
-      }),
-    );
-    vi.mocked(ddgGet).mockResolvedValue(rawResults);
-    const { webSearch: ws } = await import('./search.js');
-
-    const results = await ws('test');
-
-    expect(results).toHaveLength(10);
-  });
-
-  it('respects custom maxResults option', async () => {
-    const { ddgGet } = await import('./client.js');
-    const rawResults = Array.from({ length: 20 }, (_, i) =>
-      makeRawResult({
-        t: `Result ${i}`,
-        u: `https://example.com/page${i}`,
-      }),
-    );
-    vi.mocked(ddgGet).mockResolvedValue(rawResults);
+  it('respects maxResults option', async () => {
+    const { httpPost } = await import('./http.js');
+    const items = Array.from({ length: 20 }, (_, i) => ({
+      title: `Result ${i}`,
+      url: `https://example.com/${i}`,
+      snippet: `Description ${i}`,
+    }));
+    vi.mocked(httpPost).mockResolvedValue(makeResponse(makeSearchHtml(items)));
     const { webSearch: ws } = await import('./search.js');
 
     const results = await ws('test', { maxResults: 3 });
@@ -157,62 +121,54 @@ describe('webSearch', () => {
     expect(results).toHaveLength(3);
   });
 
-  it('returns all results if maxResults exceeds results length', async () => {
-    const { ddgGet } = await import('./client.js');
-    const rawResults = Array.from({ length: 3 }, (_, i) =>
-      makeRawResult({
-        t: `Result ${i}`,
-        u: `https://example.com/page${i}`,
-      }),
-    );
-    vi.mocked(ddgGet).mockResolvedValue(rawResults);
+  it('returns empty array for empty query', async () => {
     const { webSearch: ws } = await import('./search.js');
-
-    const results = await ws('test', { maxResults: 10 });
-
-    expect(results).toHaveLength(3);
+    const results = await ws('  ');
+    expect(results).toEqual([]);
   });
 
-  it('propagates DdgApiError from ddgGet', async () => {
-    const { ddgGet } = await import('./client.js');
-    vi.mocked(ddgGet).mockRejectedValue(
-      new DdgApiError('HTTP 429: Too Many Requests', 429, 'rate limited'),
-    );
-    const { webSearch: ws } = await import('./search.js');
-
-    await expect(ws('test')).rejects.toThrow(DdgApiError);
-    await expect(ws('test')).rejects.toThrow('429');
-  });
-
-  it('normalizes query (trims whitespace)', async () => {
-    const { ddgGet } = await import('./client.js');
-    vi.mocked(ddgGet).mockResolvedValue([makeRawResult()]);
-    const { webSearch: ws } = await import('./search.js');
-
-    await ws('  hello world  ');
-
-    expect(ddgGet).toHaveBeenCalledWith(
-      'links.duckduckgo.com/d.js',
-      expect.objectContaining({ q: 'hello world' }),
-      undefined,
-    );
-  });
-
-  it('handles missing optional fields in raw result', async () => {
-    const { ddgGet } = await import('./client.js');
-    vi.mocked(ddgGet).mockResolvedValue([
-      { t: 'Title Only', u: 'https://example.com' }, // no a, no s
-    ]);
+  it('handles HTML entities in titles and snippets', async () => {
+    const { httpPost } = await import('./http.js');
+    vi.mocked(httpPost).mockResolvedValue(makeResponse(makeSearchHtml([
+      {
+        title: 'Hello &amp; World &quot;Test&quot;',
+        url: 'https://example.com',
+        snippet: 'Some &lt;code&gt; example',
+      },
+    ])));
     const { webSearch: ws } = await import('./search.js');
 
     const results = await ws('test');
 
-    expect(results).toHaveLength(1);
-    expect(results[0]).toEqual<SearchResult>({
-      title: 'Title Only',
-      url: 'https://example.com',
-      description: '',
-      hostname: '',
-    });
+    expect(results[0].title).toBe('Hello & World "Test"');
+    expect(results[0].description).toBe('Some <code> example');
+  });
+
+  it('throws DdgApiError on non-200 status', async () => {
+    const { httpPost } = await import('./http.js');
+    vi.mocked(httpPost).mockResolvedValue({ status: 500, body: 'Error', headers: {} });
+    const { webSearch: ws } = await import('./search.js');
+
+    await expect(ws('test')).rejects.toThrow(DdgApiError);
+  });
+
+  it('throws DdgApiError on anomaly/block page', async () => {
+    const { httpPost } = await import('./http.js');
+    vi.mocked(httpPost).mockResolvedValue(makeResponse(
+      '<html><body><div class="anomaly-modal__title">Are you human?</div></body></html>',
+    ));
+    const { webSearch: ws } = await import('./search.js');
+
+    await expect(ws('test')).rejects.toThrow(DdgApiError);
+  });
+
+  it('returns empty array when no results found', async () => {
+    const { httpPost } = await import('./http.js');
+    vi.mocked(httpPost).mockResolvedValue(makeResponse('<html><body>No results</body></html>'));
+    const { webSearch: ws } = await import('./search.js');
+
+    const results = await ws('test');
+
+    expect(results).toEqual([]);
   });
 });
