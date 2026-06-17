@@ -1,6 +1,6 @@
 # ddg-search-mcp
 
-MCP server for DuckDuckGo search — **free AI answers, web search, news search, image search, and content fetch**. No API key needed.
+MCP server for DuckDuckGo — **AI answers, web search, news, images, videos, URL fetch, suggestions, definitions, and currency conversion**. No API key needed.
 
 > Rivals Exa AI for the free tier. Powered by DuckDuckGo's undocumented QnA endpoint, with browser-grade TLS fingerprinting.
 
@@ -12,7 +12,11 @@ MCP server for DuckDuckGo search — **free AI answers, web search, news search,
 | `ddg_search` | Web search | query, maxResults, region, safesearch, freshness |
 | `ddg_search_news` | News search | query, maxResults, region, safesearch, freshness |
 | `ddg_search_images` | Image search | query, maxResults, region, safesearch, freshness, size, color, type, layout, license |
+| `ddg_search_videos` | Video search | query, maxResults, region, safesearch, freshness, resolution, duration, license |
 | `ddg_fetch_content` | URL content extraction with TLS fingerprint | url, maxLength |
+| `ddg_get_suggestions` | Search suggestions / auto-complete | query, region |
+| `ddg_get_definition` | Dictionary definitions via DDG | word |
+| `ddg_convert_currency` | Currency conversion via DDG | amount, from, to |
 
 ## Quick Start
 
