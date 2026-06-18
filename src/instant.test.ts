@@ -59,6 +59,22 @@ describe('stripJsonp', () => {
     const { stripJsonp } = await import('./instant.js');
     expect(() => stripJsonp('ddg_spice_currency({"from":"USD"})x')).toThrow(DdgApiError);
   });
+
+  it('handles trailing semicolon (DDG JSONP format)', async () => {
+    const { stripJsonp } = await import('./instant.js');
+    const input = 'ddg_spice_currency({"from":"USD","amount":1,"timestamp":"","to":[{"quotecurrency":"EUR","mid":0.85}]});';
+    const result = stripJsonp(input);
+    const parsed = JSON.parse(result);
+    expect(parsed.from).toBe('USD');
+    expect(parsed.to[0].quotecurrency).toBe('EUR');
+  });
+
+  it('handles trailing semicolon with newline', async () => {
+    const { stripJsonp } = await import('./instant.js');
+    const input = 'ddg_spice_dictionary_definition([{"word":"hello"}]);\n';
+    const result = stripJsonp(input);
+    expect(JSON.parse(result)).toEqual([{ word: 'hello' }]);
+  });
 });
 
 describe('getDefinition', () => {

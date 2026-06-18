@@ -38,7 +38,7 @@ server.tool(
       const result = await getAnswer(query, { region });
       if (!result) {
         return {
-          content: [{ type: "text" as const, text: "No answer found for this query." }],
+          content: [{ type: "text" as const, text: "No answer found for this query. The QnA endpoint may be temporarily unavailable." }],
         };
       }
 
@@ -64,11 +64,18 @@ server.tool(
         content: [{ type: "text" as const, text: lines.join("\n") }],
       };
     } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      // 403 = DDG blocked QnA endpoint
+      if (msg.includes('403')) {
+        return {
+          content: [{ type: "text" as const, text: "The DuckDuckGo QnA (AI answer) endpoint is temporarily blocked by DuckDuckGo's anti-bot protection. Try rephrasing your query or using ddg_search + ddg_fetch_content to find the answer manually." }],
+        };
+      }
       return {
         content: [
           {
             type: "text" as const,
-            text: `Error fetching answer: ${err instanceof Error ? err.message : String(err)}`,
+            text: `Error fetching answer: ${msg}`,
           },
         ],
       };

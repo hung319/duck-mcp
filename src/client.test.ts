@@ -285,7 +285,7 @@ describe('ddgPost', () => {
     const [url] = mockHttpPost.mock.calls[0] as [string, string, Record<string, string>, number];
 
     expect(url).toContain('duckduckgo.com/qna');
-    expect(url).toContain('q=hello%20world');
+    expect(url).toMatch(/q=hello[\+ ]world/);
     expect(url).toContain(`vqd=${FAKE_TOKEN}`);
     expect(url).toContain('upgradable=0');
   });

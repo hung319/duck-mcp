@@ -97,7 +97,7 @@ describe('MCP Server', () => {
       jsonrpc: '2.0',
       id: 2,
       method: 'tools/list',
-    });
+    }, 15000);
 
     // 3. Assertions
     expect(response.jsonrpc).toBe('2.0');

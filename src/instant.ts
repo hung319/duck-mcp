@@ -28,7 +28,8 @@ export function stripJsonp(text: string): string {
   }
 
   // Try to strip JSONP wrapper: fn_name(...) or fn_name([...])
-  const match = trimmed.match(/^\w+\((.+)\)$/s);
+  // DDG responses often end with ");" — strip trailing semicolon/newline
+  const match = trimmed.match(/^\w+\((.+)\);?\s*$/s);
   if (match) {
     const inner = match[1].trim();
     try {

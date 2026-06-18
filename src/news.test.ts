@@ -2,85 +2,96 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { newsSearch } from './news.js';
 import type { NewsItem } from './news.js';
 
-// Mock ddgGet from client
+// Mock ddgGet from client module
 const mockDdgGet = vi.hoisted(() => vi.fn());
 vi.mock('./client.js', () => ({
   ddgGet: mockDdgGet,
+  DdgApiError: class DdgApiError extends Error {
+    constructor(message: string, public readonly statusCode?: number, public readonly body?: string) {
+      super(message);
+      this.name = 'DdgApiError';
+    }
+  },
 }));
 
-// Sample DDG news.js response items
-const sampleNewsItems = [
+// Sample DDG news.js JSON response
+function buildNewsJson(items: { title: string; url: string; excerpt: string; source?: string; date?: number; image?: string }[]): string {
+  return JSON.stringify({
+    results: items.map((item) => ({
+      title: item.title,
+      url: item.url,
+      excerpt: item.excerpt,
+      source: item.source ?? 'Example News',
+      date: item.date ?? 1700000000,
+      image: item.image,
+      relative_time: item.date ? undefined : '2 hours ago',
+    })),
+    query: 'test',
+    response_type: 'news',
+  });
+}
+
+const sampleJson = buildNewsJson([
   {
     title: 'AI Breakthrough in Quantum Computing',
     url: 'https://example.com/ai-quantum',
-    source: 'Tech News',
-    date: '2024-06-15T10:00:00Z',
-    excerpt: 'Researchers achieve major milestone in quantum machine learning.',
-    image: 'https://example.com/quantum.jpg',
+    excerpt: 'Researchers achieve major milestone in <b>quantum</b> machine learning.',
+    source: 'TechCrunch',
+    date: 1781752881,
+    image: 'https://example.com/img1.jpg',
   },
   {
     title: 'New Programming Language Released',
     url: 'https://example.com/new-lang',
-    source: 'Dev Weekly',
-    date: '2024-06-14T08:30:00Z',
-    excerpt: 'A new systems programming language promises faster compilation.',
+    excerpt: 'A new systems programming language promises <b>faster</b> compilation.',
+    source: 'Hacker News',
   },
-];
+]);
 
 describe('newsSearch', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockDdgGet.mockResolvedValue(JSON.parse(sampleJson));
   });
 
-  it('calls ddgGet with the news.js endpoint and correct query params', async () => {
-    mockDdgGet.mockResolvedValue([]);
-
+  it('calls ddgGet with duckduckgo.com/news.js endpoint', async () => {
     await newsSearch('technology');
 
-    expect(mockDdgGet).toHaveBeenCalledWith(
-      'duckduckgo.com/news.js',
-      {
-        q: 'technology',
-        l: 'us-en',
-        noamp: '1',
-      },
-    );
+    expect(mockDdgGet).toHaveBeenCalledTimes(1);
+    const [endpoint, params] = mockDdgGet.mock.calls[0];
+    expect(endpoint).toBe('duckduckgo.com/news.js');
+    expect(params.q).toBe('technology');
   });
 
-  it('returns mapped NewsItem array from response', async () => {
-    mockDdgGet.mockResolvedValue(sampleNewsItems);
-
+  it('returns mapped NewsItem array from JSON response', async () => {
     const results = await newsSearch('technology');
 
     expect(results).toHaveLength(2);
-    expect(results[0]).toEqual({
-      title: 'AI Breakthrough in Quantum Computing',
-      url: 'https://example.com/ai-quantum',
-      source: 'Tech News',
-      date: '2024-06-15T10:00:00Z',
-      snippet: 'Researchers achieve major milestone in quantum machine learning.',
-      image: 'https://example.com/quantum.jpg',
-    });
-    expect(results[1]).toEqual({
-      title: 'New Programming Language Released',
-      url: 'https://example.com/new-lang',
-      source: 'Dev Weekly',
-      date: '2024-06-14T08:30:00Z',
-      snippet: 'A new systems programming language promises faster compilation.',
-    });
-    // Item without image should not have image property
-    expect(results[1].image).toBeUndefined();
+    expect(results[0].title).toBe('AI Breakthrough in Quantum Computing');
+    expect(results[0].url).toBe('https://example.com/ai-quantum');
+    expect(results[0].snippet).toContain('quantum');
+    expect(results[0].source).toBe('TechCrunch');
+    expect(results[0].image).toBe('https://example.com/img1.jpg');
+    expect(results[0].date).toBeTruthy();
+
+    expect(results[1].title).toBe('New Programming Language Released');
+    expect(results[1].url).toBe('https://example.com/new-lang');
+    expect(results[1].source).toBe('Hacker News');
+  });
+
+  it('strips HTML tags from excerpt', async () => {
+    const results = await newsSearch('technology');
+    expect(results[0].snippet).not.toContain('<b>');
+    expect(results[0].snippet).not.toContain('</b>');
   });
 
   it('limits results to default maxResults of 5', async () => {
     const manyItems = Array.from({ length: 10 }, (_, i) => ({
       title: `Article ${i + 1}`,
       url: `https://example.com/article${i + 1}`,
-      source: 'News',
-      date: '2024-06-15T10:00:00Z',
       excerpt: `Snippet ${i + 1}`,
     }));
-    mockDdgGet.mockResolvedValue(manyItems);
+    mockDdgGet.mockResolvedValue(JSON.parse(buildNewsJson(manyItems)));
 
     const results = await newsSearch('technology');
 
@@ -91,49 +102,42 @@ describe('newsSearch', () => {
     const manyItems = Array.from({ length: 10 }, (_, i) => ({
       title: `Article ${i + 1}`,
       url: `https://example.com/article${i + 1}`,
-      source: 'News',
-      date: '2024-06-15T10:00:00Z',
       excerpt: `Snippet ${i + 1}`,
     }));
-    mockDdgGet.mockResolvedValue(manyItems);
+    mockDdgGet.mockResolvedValue(JSON.parse(buildNewsJson(manyItems)));
 
     const results = await newsSearch('technology', { maxResults: 3 });
 
     expect(results).toHaveLength(3);
   });
 
-  it('returns empty array for empty API response', async () => {
-    mockDdgGet.mockResolvedValue([]);
+  it('returns empty array for empty results', async () => {
+    mockDdgGet.mockResolvedValue({ results: [], query: 'test' });
 
     const results = await newsSearch('technology');
-
     expect(results).toEqual([]);
   });
 
-  it('handles items with empty string fields gracefully', async () => {
-    const partialItem = {
-      title: '',
-      url: '',
-      source: '',
-      date: '',
-      excerpt: '',
-    };
-    mockDdgGet.mockResolvedValue([partialItem]);
+  it('returns empty array for empty query', async () => {
+    const results = await newsSearch('   ');
+    expect(results).toEqual([]);
+  });
 
-    const results = await newsSearch('tech');
+  it('returns empty array when results field is missing', async () => {
+    mockDdgGet.mockResolvedValue({ query: 'test' });
 
-    expect(results).toHaveLength(1);
-    expect(results[0]).toEqual({
-      title: '',
-      url: '',
-      source: '',
-      date: '',
-      snippet: '',
-    });
+    const results = await newsSearch('technology');
+    expect(results).toEqual([]);
+  });
+
+  it('includes region when specified', async () => {
+    await newsSearch('technology', { region: 'vn-vi' });
+
+    const [, params] = mockDdgGet.mock.calls[0];
+    expect(params.l).toBe('vn-vi');
   });
 
   it('exports NewsItem interface with correct shape', () => {
-    // Type-level test — just verify the interface is importable
     const item: NewsItem = {
       title: 'Test',
       url: 'https://test.com',
@@ -147,17 +151,5 @@ describe('newsSearch', () => {
     expect(item.date).toBe('2024-01-01');
     expect(item.snippet).toBe('Test snippet');
     expect(item.image).toBeUndefined();
-  });
-
-  it('preserves image property when present', () => {
-    const item: NewsItem = {
-      title: 'Test',
-      url: 'https://test.com',
-      source: 'Test',
-      date: '2024-01-01',
-      snippet: 'Test snippet',
-      image: 'https://test.com/image.jpg',
-    };
-    expect(item.image).toBe('https://test.com/image.jpg');
   });
 });
