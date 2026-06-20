@@ -1,6 +1,6 @@
 {
   "name": "ddg-search-mcp",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "MCP server for DuckDuckGo search — free AI answers, web search, news, and content fetch. No API key needed.",
   "type": "module",
   "main": "./dist/index.js",
