@@ -17,53 +17,18 @@ export interface SearchOptions {
   timeFilter?: 'day' | 'week' | 'month' | 'year';
 }
 
-// ─── Browser-like headers for DDG HTML endpoint ─────────────────────────
-// DDG bot detection checks Sec-Fetch headers + Accept-Language + UA.
-// These headers must match a real browser to avoid CAPTCHA/anomaly modal.
+// ─── Headers for DDG Lite endpoint ──────────────────────────────────────
+// Lite is lighter than html.duckduckgo.com/html/ (20% smaller responses).
 
-const BROWSER_HEADERS: Record<string, string> = {
+const LITE_HEADERS: Record<string, string> = {
   'User-Agent':
     'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36',
-  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+  'Accept': 'text/html',
   'Accept-Language': 'en-US,en;q=0.9',
-  'Origin': 'https://html.duckduckgo.com',
-  'Referer': 'https://html.duckduckgo.com/html/',
-  'Sec-Fetch-Dest': 'document',
-  'Sec-Fetch-Mode': 'navigate',
-  'Sec-Fetch-Site': 'same-origin',
-  'Upgrade-Insecure-Requests': '1',
   'Content-Type': 'application/x-www-form-urlencoded',
 };
 
 // ─── HTML Helpers ───────────────────────────────────────────────────────
-
-function extractText(html: string, className: string, tag = 'a'): string[] {
-  const results: string[] = [];
-  const regex = new RegExp(
-    `<${tag}[^>]*class="[^"]*${className}[^"]*"[^>]*>([\\s\\S]*?)<\\/${tag}>`,
-    'gi',
-  );
-  let match;
-  while ((match = regex.exec(html)) !== null) {
-    const text = match[1].replace(/<[^>]+>/g, '').trim();
-    if (text) results.push(text);
-  }
-  return results;
-}
-
-function extractUrls(html: string, className: string, tag = 'a'): string[] {
-  const results: string[] = [];
-  const regex = new RegExp(
-    `<${tag}[^>]*class="[^"]*${className}[^"]*"[^>]*href="([^"]*)"[^>]*>`,
-    'gi',
-  );
-  let match;
-  while ((match = regex.exec(html)) !== null) {
-    const url = match[1].trim();
-    if (url) results.push(url);
-  }
-  return results;
-}
 
 function htmlDecode(text: string): string {
   return text
@@ -80,8 +45,7 @@ function htmlDecode(text: string): string {
 
 function extractHostname(url: string): string {
   try {
-    const u = new URL(url);
-    return u.hostname;
+    return new URL(url).hostname;
   } catch {
     return '';
   }
@@ -90,8 +54,8 @@ function extractHostname(url: string): string {
 // ─── webSearch ──────────────────────────────────────────────────────────
 
 /**
- * Web search via DuckDuckGo HTML (no-JS) endpoint.
- * Posts to html.duckduckgo.com/html with browser-like headers.
+ * Web search via DuckDuckGo Lite endpoint.
+ * Posts to lite.duckduckgo.com/lite/ — lighter than html.duckduckgo.com/html/.
  * No VQD token needed. Bypasses DDG's JS challenge.
  */
 export async function webSearch(
@@ -109,9 +73,9 @@ export async function webSearch(
   }
 
   const response = await httpPost(
-    'https://html.duckduckgo.com/html/',
+    'https://lite.duckduckgo.com/lite/',
     params.toString(),
-    BROWSER_HEADERS,
+    LITE_HEADERS,
     10000,
   );
 
@@ -132,10 +96,28 @@ export async function webSearch(
     );
   }
 
-  // Parse HTML for organic results
-  const titles = extractText(response.body, 'result__a');
-  const urls = extractUrls(response.body, 'result__a');
-  const snippets = extractText(response.body, 'result__snippet');
+  // Parse Lite HTML: <a rel="nofollow" href="URL" class='result-link'>TITLE</a>
+  //                   <td class='result-snippet'>SNIPPET</td>
+  const linkRegex = /<a[^>]*rel="nofollow"[^>]*href="([^"]+)"[^>]*class=['"]result-link['"][^>]*>([\s\S]*?)<\/a>/gi;
+  const snippetRegex = /<td[^>]*class=['"]result-snippet['"][^>]*>([\s\S]*?)<\/td>/gi;
+
+  const urls: string[] = [];
+  const titles: string[] = [];
+  let match;
+
+  while ((match = linkRegex.exec(response.body)) !== null) {
+    const url = match[1].trim();
+    const title = match[2].replace(/<[^>]+>/g, '').trim();
+    if (url && title) {
+      urls.push(url);
+      titles.push(title);
+    }
+  }
+
+  const snippets: string[] = [];
+  while ((match = snippetRegex.exec(response.body)) !== null) {
+    snippets.push(match[1].replace(/<[^>]+>/g, '').trim());
+  }
 
   const results: SearchResult[] = [];
   for (let i = 0; i < Math.min(titles.length, urls.length, maxResults); i++) {

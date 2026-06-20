@@ -8,18 +8,24 @@ vi.mock('./http.js', () => ({
 }));
 
 function makeSearchHtml(results: { title: string; url: string; snippet: string }[]): string {
+  // DDG Lite uses table-based layout with result-link and result-snippet classes
   const items = results.map(
     (r) =>
-      `<div class="result results_links results_links_deep web-result ">
-        <div class="result__extras">
-          <div class="result__extras__url">
-            <a rel="nofollow" class="result__a" href="${r.url}">${r.title}</a>
-          </div>
-        </div>
-        <a class="result__snippet" href="${r.url}">${r.snippet}</a>
-      </div>`,
+      `<tr>
+        <td valign="top">1.&nbsp;</td>
+        <td><a rel="nofollow" href="${r.url}" class='result-link'>${r.title}</a></td>
+      </tr>
+      <tr>
+        <td>&nbsp;&nbsp;&nbsp;</td>
+        <td class='result-snippet'>${r.snippet}</td>
+      </tr>`,
   );
-  return `<html><body><div class="serp__results"><div class="results--main">${items.join('\n')}</div></div></body></html>`;
+  return `<html><body>
+    <form action="/lite/" method="post">
+      <input class='query' type="text" name="q" value="test">
+    </form>
+    <table border="0">${items.join('\n')}</table>
+  </body></html>`;
 }
 
 function makeResponse(html: string, status = 200) {
@@ -33,7 +39,7 @@ describe('webSearch', () => {
     vi.clearAllMocks();
   });
 
-  it('posts to DDG HTML endpoint with query and browser headers', async () => {
+  it('posts to DDG Lite endpoint with query', async () => {
     const { httpPost } = await import('./http.js');
     vi.mocked(httpPost).mockResolvedValue(makeResponse(makeSearchHtml([
       { title: 'Test', url: 'https://example.com', snippet: '' },
@@ -43,14 +49,10 @@ describe('webSearch', () => {
     await ws('hello world');
 
     expect(httpPost).toHaveBeenCalledWith(
-      'https://html.duckduckgo.com/html/',
+      'https://lite.duckduckgo.com/lite/',
       expect.stringContaining('q=hello+world'),
       expect.objectContaining({
-        'Origin': 'https://html.duckduckgo.com',
-        'Referer': 'https://html.duckduckgo.com/html/',
-        'Sec-Fetch-Dest': 'document',
-        'Sec-Fetch-Mode': 'navigate',
-        'Sec-Fetch-Site': 'same-origin',
+        'Accept': 'text/html',
       }),
       10000,
     );
